@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: supertokens
+      POSTGRES_PASSWORD: supertokens
+      POSTGRES_DB: supertokens
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supertokens"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  supertokens-core:
+    image: registry.supertokens.io/supertokens/supertokens-postgresql
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRESQL_CONNECTION_URI: "postgresql://supertokens:supertokens@db:5432/supertokens"
+      DISABLE_TELEMETRY: "true"
+    ports:
+      - "3567:3567"
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    environment:
+      ISSUER: "http://localhost:3001"
+      SUPERTOKENS_CORE: "http://supertokens-core:3567"
+      WEB_ORIGIN: "http://localhost:3000"
+    ports:
+      - "3001:3001"
+    depends_on:
+      supertokens-core:
+        condition: service_started
