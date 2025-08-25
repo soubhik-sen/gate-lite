@@ -37,3 +37,59 @@ services:
     depends_on:
       supertokens-core:
         condition: service_started
+
+  hydra-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: hydra
+      POSTGRES_PASSWORD: hydra
+      POSTGRES_DB: hydra
+    ports:
+      - "5442:5432"  # avoid clashing with your other DB
+    volumes:
+      - hydra_db:/var/lib/postgresql/data
+
+  hydra-migrate:
+    image: oryd/hydra:v2.2.0
+    depends_on: [hydra-db]
+    environment:
+      DSN: postgres://hydra:hydra@hydra-db:5432/hydra?sslmode=disable
+    command: migrate sql -e --yes
+
+  hydra:
+    image: oryd/hydra:v2.2.0
+    depends_on: [hydra-migrate]
+    ports:
+      - "4444:4444"   # public
+      - "4445:4445"   # admin
+    environment:
+      DSN: postgres://hydra:hydra@hydra-db:5432/hydra?sslmode=disable
+      URLS_SELF_ISSUER: ${HYDRA_ISSUER:-http://localhost:4444}
+      URLS_LOGIN: ${HYDRA_LOGIN_UI:-http://localhost:3002/login}
+      URLS_CONSENT: ${HYDRA_CONSENT_UI:-http://localhost:3002/consent}
+      OAUTH2_EXPOSE_INTERNAL_ERRORS: "true"
+      # Optional: make access tokens JWT so resource servers can verify locally
+      STRATEGIES_ACCESS_TOKEN: jwt
+      SECRETS_SYSTEM: ${HYDRA_SYSTEM_SECRET:-you_should_change_me}
+    command: serve all --dangerous-force-http
+
+  # Login + Consent app (FastAPI)
+  gate-login-consent:
+    build:
+      context: ./login-consent
+      dockerfile: Dockerfile
+    environment:
+      ENV: dev
+      WEB_ORIGIN: http://localhost:3000
+      API_DOMAIN: http://localhost:3002
+      HYDRA_ADMIN_URL: http://hydra:4445
+      # Supertokens backend you already run in gate-lite
+      SUPERTOKENS_CONNECTION_URI: http://supertokens-core:3567
+    ports:
+      - "3002:3002"
+    depends_on:
+      - hydra
+      - supertokens-core   # from your existing stack
+
+volumes:
+  hydra_db:

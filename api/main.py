@@ -11,6 +11,7 @@ from supertokens_python.framework.fastapi import get_middleware
 from supertokens_python.recipe.session.framework.fastapi import verify_session
 from supertokens_python.recipe.session import SessionContainer
 from supertokens_python.recipe.session import InputErrorHandlers
+from .token_verify import verify_bearer
 
 # ----- Configuration from environment -----
 # ======== Environment (adjust defaults to your setup) ========
@@ -110,6 +111,10 @@ def ping():
 @app.get("/me")
 async def me(session_: SessionContainer = Depends(verify_session())):
     return {"userId": session_.get_user_id()}
+
+@app.get("/secure")
+def secure_endpoint(claims=Depends(verify_bearer)):
+    return {"sub": claims["sub"], "scopes": claims.get("scope")}
 
 # Logout route (kills current session)
 @app.post("/logout")
