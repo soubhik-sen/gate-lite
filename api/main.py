@@ -11,7 +11,7 @@ from supertokens_python.framework.fastapi import get_middleware
 from supertokens_python.recipe.session.framework.fastapi import verify_session
 from supertokens_python.recipe.session import SessionContainer
 from supertokens_python.recipe.session import InputErrorHandlers
-from .token_verify import verify_bearer
+from token_verify import verify_bearer
 
 # ----- Configuration from environment -----
 # ======== Environment (adjust defaults to your setup) ========

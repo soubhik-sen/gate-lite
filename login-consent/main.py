@@ -5,8 +5,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Form
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from supertokens_python import init, SupertokensConfig
-from supertokens_python.types import InputAppInfo
+from supertokens_python import init, SupertokensConfig, InputAppInfo
 from supertokens_python.framework.fastapi import get_middleware
 from supertokens_python.recipe import session, emailpassword
 from supertokens_python.recipe.session.framework.fastapi import verify_session
@@ -85,7 +84,7 @@ async def login_ui(request: Request, login_challenge: str):
 # After user signs in (via Supertokens), your frontend should call:
 # POST /login/accept with the login_challenge to finalize
 @app.post("/login/accept")
-async def login_accept(login_challenge: str = Form(...), session_: SessionContainer = Depends(session.verify_session())):
+async def login_accept(login_challenge: str = Form(...), session_: SessionContainer = Depends(verify_session())):
     user_id = session_.get_user_id()
     async with httpx.AsyncClient() as client:
         r = await client.put(

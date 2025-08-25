@@ -71,7 +71,7 @@ services:
       # Optional: make access tokens JWT so resource servers can verify locally
       STRATEGIES_ACCESS_TOKEN: jwt
       SECRETS_SYSTEM: ${HYDRA_SYSTEM_SECRET:-you_should_change_me}
-    command: serve all --dangerous-force-http
+    command: serve all --dev #--dangerous-force-http
 
   # Login + Consent app (FastAPI)
   gate-login-consent:
