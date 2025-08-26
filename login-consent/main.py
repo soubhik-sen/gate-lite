@@ -1,3 +1,9 @@
+"""
+FastAPI service acting as the login and consent front-end for Ory Hydra.
+It uses Supertokens for authentication and drives Hydra's OAuth2 login and
+consent challenges.
+"""
+
 import os
 import httpx
 from typing import Optional
@@ -59,6 +65,20 @@ app.add_middleware(
 # Hydra redirects the browser to GET /login?login_challenge=...
 @app.get("/login")
 async def login_ui(request: Request, login_challenge: str):
+    """Render or auto-accept Hydra's login challenge.
+
+    Parameters:
+        request: Incoming FastAPI request used to check for an existing session.
+        login_challenge: Challenge string received from Hydra.
+
+    Sequence of Hydra calls:
+        Sends a PUT request to ``/oauth2/auth/requests/login/accept`` when a
+        Supertokens session already exists.
+
+    Side Effects:
+        Redirects the browser to the ``redirect_to`` URL supplied by Hydra or
+        returns JSON instructing the client to initiate login.
+    """
     # If user already has a Supertokens session, accept login immediately
     session_: SessionContainer | None = await session.get_session(request, session_required=False)
     if session_:
@@ -85,6 +105,20 @@ async def login_ui(request: Request, login_challenge: str):
 # POST /login/accept with the login_challenge to finalize
 @app.post("/login/accept")
 async def login_accept(login_challenge: str = Form(...), session_: SessionContainer = Depends(verify_session())):
+    """Finalize Hydra's login request after user authentication.
+
+    Parameters:
+        login_challenge: The challenge string initially provided by Hydra.
+        session_: Verified Supertokens session for the authenticated user.
+
+    Sequence of Hydra calls:
+        Issues a PUT request to ``/oauth2/auth/requests/login/accept`` to mark
+        the login as successful.
+
+    Side Effects:
+        Redirects the user agent to Hydra's ``redirect_to`` URL to continue the
+        OAuth2 authorization flow.
+    """
     user_id = session_.get_user_id()
     async with httpx.AsyncClient() as client:
         r = await client.put(
@@ -101,10 +135,26 @@ async def login_accept(login_challenge: str = Form(...), session_: SessionContai
 # Hydra redirects browser to GET /consent?consent_challenge=...
 @app.get("/consent")
 async def consent_ui(consent_challenge: str, session_: SessionContainer = Depends(verify_session())):
+    """Handle Hydra's consent challenge for an authenticated user.
+
+    Parameters:
+        consent_challenge: Challenge string provided by Hydra.
+        session_: Verified Supertokens session for the current user.
+
+    Sequence of Hydra calls:
+        1. GET ``/oauth2/auth/requests/consent`` to obtain scopes and audience.
+        2. PUT ``/oauth2/auth/requests/consent/accept`` to grant consent.
+
+    Side Effects:
+        Auto-approves all requested scopes and audiences and embeds the user id
+        in the ID and access tokens before redirecting back to Hydra.
+    """
     user_id = session_.get_user_id()
 
-    # In a real app, you’d render scopes/claims for the user to approve.
-    # For baseline, auto-approve requested scopes.
+    # In a real app, you'd render scopes/claims for the user to approve.
+    # This demo auto-approves whatever Hydra requests. Production deployments
+    # should present a consent screen and persist user decisions or restrict
+    # auto-approval to trusted clients.
     async with httpx.AsyncClient() as client:
         # Get requested scopes / audience
         getr = await client.get(
@@ -117,7 +167,9 @@ async def consent_ui(consent_challenge: str, session_: SessionContainer = Depend
         requested_scope = body.get("requested_scope", [])
         requested_audience = body.get("requested_access_token_audience", [])
 
-        # Accept consent
+        # Auto-approve the consent request by echoing back Hydra's requested
+        # scopes and audiences. Replace or augment this in production to honour
+        # the user's actual selections.
         putr = await client.put(
             f"{HYDRA_ADMIN_URL}/oauth2/auth/requests/consent/accept",
             params={"consent_challenge": consent_challenge},
