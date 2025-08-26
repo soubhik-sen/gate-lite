@@ -3,3 +3,4 @@ uvicorn==0.30.6
 supertokens-python==0.22.1
 python-multipart==0.0.9
 python-jose[cryptography]==3.3.0
+httpx==0.26.0
