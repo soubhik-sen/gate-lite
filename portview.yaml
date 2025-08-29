@@ -1,0 +1,42 @@
+┌──────────────────────── Host (your laptop) ────────────────────────┐
+│                                                                    │
+│  psql -> localhost:5433  ───────────────┐                          │
+│                                         │                          │
+│  psql -> localhost:5442  ───────┐       │                          │
+│                                 │       │                          │
+│  Browser/API calls:                                                │
+│    - http://localhost:3000  →  web (frontend)                      │
+│    - http://localhost:3001  →  api (Gate-Lite)                     │
+│    - http://localhost:4444  →  hydra-public (optional exposure)    │
+│    - http://localhost:4445  →  hydra-admin  (usually private)      │
+│                                                                    │
+└──────────────┬─────────────────────────────────────────────────────┘
+               │ port mappings
+               ▼
+┌──────────────────── Docker network: gate-lite_default ─────────────┐
+│                                                                     │
+│  web  (no DB)                                                       │
+│    └─ talks HTTP to api, hydra-public (if needed)                   │
+│                                                                     │
+│  api  (Gate-Lite)                                                   │
+│    ├─ HTTP to supertokens-core:3567                                 │
+│    ├─ (JWT verify) GET hydra-public:4444/.well-known/jwks.json      │
+│    └─ (optional) Admin ops to hydra-admin:4445                      │
+│                                                                     │
+│  supertokens-core:3567                                              │
+│    └─ uses supertokens-db:5432                                      │
+│                                                                     │
+│  hydra-public:4444     hydra-admin:4445                             │
+│    └─ both use hydra-db:5432                                        │
+│                                                                     │
+│  supertokens-db:5432 (Postgres)   hydra-db:5432 (Postgres)          │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+Host port mappings:
+- 5433:5432 → supertokens-db  (Host 5433 → Container 5432)
+- 5442:5432 → hydra-db        (Host 5442 → Container 5432)
+- 3000:3000 → web
+- 3001:3001 → api
+- 4444:4444 → hydra-public    (if exposed)
+- 4445:4445 → hydra-admin     (usually keep internal)

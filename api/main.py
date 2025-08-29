@@ -12,6 +12,7 @@ from supertokens_python.recipe.session.framework.fastapi import verify_session
 from supertokens_python.recipe.session import SessionContainer
 from supertokens_python.recipe.session import InputErrorHandlers
 from token_verify import verify_bearer
+from oauth_routes import router as oauth_router
 
 # ----- Configuration from environment -----
 # ======== Environment (adjust defaults to your setup) ========
@@ -37,6 +38,7 @@ COOKIE_SAMESITE = "lax" if IS_DEV else "none"  # 'lax' for dev, 'none' for cross
 
 # ----- FastAPI app -----
 app = FastAPI(title="Gate-Lite API")
+app.include_router(oauth_router)
 
 # ----- SuperTokens init (runs once at import) -----
 # ======== Supertokens init ========
