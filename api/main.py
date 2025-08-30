@@ -13,6 +13,7 @@ from supertokens_python.recipe.session import SessionContainer
 from supertokens_python.recipe.session import InputErrorHandlers
 from token_verify import verify_bearer
 from oauth_routes import router as oauth_router
+from api.gate_m2m import router as gate_m2m_router
 
 # ----- Configuration from environment -----
 # ======== Environment (adjust defaults to your setup) ========
@@ -39,7 +40,7 @@ COOKIE_SAMESITE = "lax" if IS_DEV else "none"  # 'lax' for dev, 'none' for cross
 # ----- FastAPI app -----
 app = FastAPI(title="Gate-Lite API")
 app.include_router(oauth_router)
-
+app.include_router(gate_m2m_router)
 # ----- SuperTokens init (runs once at import) -----
 # ======== Supertokens init ========
 def _error_handlers() -> InputErrorHandlers:

@@ -32,6 +32,17 @@ services:
       ISSUER: "http://localhost:3001"
       SUPERTOKENS_CORE: "http://supertokens-core:3567"
       WEB_ORIGIN: "http://localhost:3000"
+      GATE_API_KEY: ${GATE_API_KEY}
+      # Registry (choose one)
+      # For dev:
+      GATE_CLIENTS_JSON: ${GATE_CLIENTS_JSON}
+      # For prod with Docker secrets (preferred):
+      # GATE_CLIENTS_FILE: /run/secrets/gate_clients.json
+    # secrets:
+    #   - gate_clients       # define this secret in Compose/Swarm and mount it
+# secrets:
+#   gate_clients:
+#     file: ./secrets/gate_clients.json
     ports:
       - "3001:3001"
     depends_on:
