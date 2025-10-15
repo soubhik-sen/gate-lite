@@ -17,16 +17,22 @@ from supertokens_python.recipe import session, emailpassword
 from supertokens_python.recipe.session.framework.fastapi import verify_session
 from supertokens_python.recipe.session import SessionContainer
 
+# --- replace the ENV block at the top with this ---
 ENV = os.getenv("ENV", "dev")
-API_DOMAIN = os.getenv("API_DOMAIN", "http://localhost:3002").rstrip("/")
-WEB_ORIGIN = os.getenv("WEB_ORIGIN", "http://localhost:3000").rstrip("/")
-HYDRA_ADMIN_URL = os.getenv("HYDRA_ADMIN_URL", "http://localhost:4445").rstrip("/")
-SUPERTOKENS_CONNECTION_URI = os.getenv("SUPERTOKENS_CONNECTION_URI", "http://localhost:3567")
+API_DOMAIN = os.getenv("API_DOMAIN", "http://login-consent:8000").rstrip("/")     # inside docker
+WEB_ORIGIN = os.getenv("WEB_ORIGIN", "http://localhost:3000").rstrip("/")         # your real web app origin
+HYDRA_ADMIN_URL = os.getenv("HYDRA_ADMIN_URL", "http://hydra:4445").rstrip("/")
+
+# Support either var name; prefer SUPERTOKENS_CONNECTION_URI but fall back to SUPERTOKENS_CORE_URI
+_SUPERTOKENS_URI = os.getenv("SUPERTOKENS_CONNECTION_URI") or os.getenv("SUPERTOKENS_CORE_URI") or "http://supertokens:3567"
+SUPERTOKENS_CONNECTION_URI = _SUPERTOKENS_URI
+
 COOKIE_DOMAIN: Optional[str] = os.getenv("COOKIE_DOMAIN") or None
 
 IS_DEV = ENV != "prod"
 COOKIE_SECURE = not IS_DEV
 COOKIE_SAMESITE = "lax" if IS_DEV else "none"
+
 
 # Init Supertokens (email-password + session) just for the login UI app
 init(
@@ -190,3 +196,40 @@ async def consent_ui(consent_challenge: str, session_: SessionContainer = Depend
         redirect_to = putr.json()["redirect_to"]
 
     return RedirectResponse(redirect_to)
+# --- append at the END of the file (new routes) ---
+
+# 3) LOGOUT endpoints (Hydra expects these to exist per hydra.yml)
+# Hydra will hit GET /logout?logout_challenge=... first
+@app.get("/logout")
+async def hydra_logout(logout_challenge: str, request: Request):
+    """
+    Hydra back-channel logout: accept logout and redirect where Hydra says.
+    If a SuperTokens session exists, we revoke it.
+    """
+    # Revoke ST session if present (no error if absent)
+    session_: SessionContainer | None = await session.get_session(request, session_required=False)
+    if session_:
+        await session_.revoke_session()
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.put(
+            f"{HYDRA_ADMIN_URL}/oauth2/auth/requests/logout/accept",
+            params={"logout_challenge": logout_challenge},
+        )
+        r.raise_for_status()
+        redirect_to = r.json()["redirect_to"]
+
+    return RedirectResponse(redirect_to)
+
+# This is where Hydra will redirect after logout accept (as configured in hydra.yml: urls.post_logout_redirect)
+@app.get("/loggedout")
+async def logged_out():
+    return JSONResponse({"ok": True, "message": "You are logged out."})
+
+# 4) Dev helper: whoami (quick session check)
+@app.get("/whoami")
+async def whoami(request: Request):
+    session_: SessionContainer | None = await session.get_session(request, session_required=False)
+    if not session_:
+        return JSONResponse({"loggedIn": False})
+    return JSONResponse({"loggedIn": True, "userId": session_.get_user_id()})

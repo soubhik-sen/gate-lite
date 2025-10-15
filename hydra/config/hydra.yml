@@ -1,0 +1,48 @@
+dsn: ${DSN}
+
+serve:
+  public:
+    host: 0.0.0.0
+    port: 4444
+  admin:
+    host: 0.0.0.0
+    port: 4445
+
+urls:
+  self:
+    issuer: http://hydra:4444            # for now; later put your Gate public domain + TLS
+    public: http://hydra:4444
+    admin: http://hydra:4445
+  login: http://login-consent:8000/login
+  consent: http://login-consent:8000/consent
+  logout: http://login-consent:8000/logout
+  post_logout_redirect: http://login-consent:8000/loggedout
+
+secrets:
+  system:
+    - you_should_override_me_with_a_long_random_secret
+
+strategies:
+  access_token: jwt
+
+oidc:
+  subject_identifiers:
+    supported_types:
+      - public
+      - pairwise
+    pairwise:
+      salt: replace-with-long-random-salt
+
+# DEV ONLY — loosen some restrictions to get started fast
+dev:
+  cors:
+    enabled: true
+    allowed_origins:
+      - "*"
+  cookies:
+    same_site_mode: Lax
+
+log:
+  level: info
+
+#dangerous_allow_insecure_http: true

@@ -1,106 +1,136 @@
+
+
 services:
-  db:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: supertokens
-      POSTGRES_PASSWORD: supertokens
-      POSTGRES_DB: supertokens
+  # ========== PUBLIC FACADE ==========
+  gate-api:
+    build: ./api
+    container_name: gate-api
     ports:
-      - "5433:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U supertokens"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  supertokens-core:
-    image: registry.supertokens.io/supertokens/supertokens-postgresql
+      - "8000:8000"                                # <-- ONLY public port
+    environment:
+      # Gate public
+      GATE_BASE_URL: "http://localhost:8000"
+      GATE_ISSUER: "http://hydra:4444"      # later: your https Gate domain if you fully mask Hydra
+      # Hydra (internal)
+      HYDRA_PUBLIC_URL: "http://hydra:4444"
+      HYDRA_ADMIN_URL:  "http://hydra:4445"
+      ISSUER: "http://hydra:4444"
+      # Gate's OAuth client (seeded by hydra-init)
+      OAUTH_CLIENT_ID: "gate-client"
+      OAUTH_CLIENT_SECRET: "gate-client-secret"
+      OAUTH_REDIRECT_URI: "http://localhost:3000/callback"
+      OAUTH_SCOPE: "sacred.read sacred.write"
+      OAUTH_AUDIENCE: ""
+      # If your Gate API needs to touch SuperTokens directly (usually not):
+      SUPERTOKENS_CORE_URI: "http://supertokens:3567"
     depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      POSTGRESQL_CONNECTION_URI: "postgresql://supertokens:supertokens@db:5432/supertokens"
-      DISABLE_TELEMETRY: "true"
-    ports:
-      - "3567:3567"
+      - hydra-migrate
+      - hydra
+      - login-consent
+      - supertokens
+    restart: unless-stopped
 
-  api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
+  # ========== HYDRA ==========
+  hydra:
+    image: oryd/hydra:v2
+    container_name: hydra
+    volumes:
+      - ./hydra/config:/etc/config
+    command:
+      - serve
+      - all
+      - --config
+      - /etc/config/hydra.yml
+      - --dev                                     # remove in prod
     environment:
-      ISSUER: "http://localhost:3001"
-      SUPERTOKENS_CORE: "http://supertokens-core:3567"
-      WEB_ORIGIN: "http://localhost:3000"
-      GATE_API_KEY: ${GATE_API_KEY}
-      # Registry (choose one)
-      # For dev:
-      GATE_CLIENTS_JSON: ${GATE_CLIENTS_JSON}
-      # For prod with Docker secrets (preferred):
-      # GATE_CLIENTS_FILE: /run/secrets/gate_clients.json
-    # secrets:
-    #   - gate_clients       # define this secret in Compose/Swarm and mount it
-# secrets:
-#   gate_clients:
-#     file: ./secrets/gate_clients.json
-    ports:
-      - "3001:3001"
+      DSN: "postgres://hydra:hydra@hydra-db:5432/hydra?sslmode=disable"
     depends_on:
-      supertokens-core:
-        condition: service_started
+      - hydra-db
+    restart: unless-stopped
+    # NOTE: no ports -> stays private (reachable by other services via Docker network)
+
+  hydra-migrate:
+    image: oryd/hydra:v2
+    container_name: hydra-migrate
+    command: migrate sql -e --yes
+    environment:
+      DSN: "postgres://hydra:hydra@hydra-db:5432/hydra?sslmode=disable"
+    depends_on:
+      - hydra-db
+    restart: on-failure
 
   hydra-db:
-    image: postgres:15
+    image: postgres:14
+    container_name: hydra-db
     environment:
       POSTGRES_USER: hydra
       POSTGRES_PASSWORD: hydra
       POSTGRES_DB: hydra
-    ports:
-      - "5442:5432"  # avoid clashing with your other DB
     volumes:
-      - hydra_db:/var/lib/postgresql/data
+      - hydra_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
-  hydra-migrate:
-    image: oryd/hydra:v2.2.0
-    depends_on: [hydra-db]
+  # ========== LOGIN + CONSENT (PRIVATE) ==========
+  login-consent:
+    build: ./login-consent
+    container_name: login-consent
     environment:
-      DSN: postgres://hydra:hydra@hydra-db:5432/hydra?sslmode=disable
-    command: migrate sql -e --yes
-
-  hydra:
-    image: oryd/hydra:v2.2.0
-    depends_on: [hydra-migrate]
-    ports:
-      - "4444:4444"   # public
-      - "4445:4445"   # admin
-    environment:
-      DSN: postgres://hydra:hydra@hydra-db:5432/hydra?sslmode=disable
-      URLS_SELF_ISSUER: ${HYDRA_ISSUER:-http://localhost:4444}
-      URLS_LOGIN: ${HYDRA_LOGIN_UI:-http://localhost:3002/login}
-      URLS_CONSENT: ${HYDRA_CONSENT_UI:-http://localhost:3002/consent}
-      OAUTH2_EXPOSE_INTERNAL_ERRORS: "true"
-      # Optional: make access tokens JWT so resource servers can verify locally
-      STRATEGIES_ACCESS_TOKEN: jwt
-      SECRETS_SYSTEM: ${HYDRA_SYSTEM_SECRET:-you_should_change_me}
-    command: serve all --dev #--dangerous-force-http
-
-  # Login + Consent app (FastAPI)
-  gate-login-consent:
-    build:
-      context: ./login-consent
-      dockerfile: Dockerfile
-    environment:
-      ENV: dev
-      WEB_ORIGIN: http://localhost:3000
-      API_DOMAIN: http://localhost:3002
-      HYDRA_ADMIN_URL: http://hydra:4445
-      # Supertokens backend you already run in gate-lite
-      SUPERTOKENS_CONNECTION_URI: http://supertokens-core:3567
-    ports:
-      - "3002:3002"
+      # Hydra Admin for login/consent accept/deny
+      HYDRA_ADMIN_URL: "http://hydra:4445"
+      # SuperTokens Core for session management
+      SUPERTOKENS_CORE_URI: "http://supertokens:3567"
+      # Optional app configs your code might expect:
+      APP_BASE_URL: "http://login-consent:8000"
+      WEB_ORIGIN: "http://localhost:3000"
+      API_DOMAIN: "http://login-consent:8000"
     depends_on:
       - hydra
-      - supertokens-core   # from your existing stack
+      - supertokens
+    restart: unless-stopped
+    # no ports -> keep private (Hydra calls it internally)
 
+  # ========== SUPERTOKENS (PRIVATE) ==========
+  supertokens:
+    image: supertokens/supertokens-postgresql:latest
+    container_name: supertokens
+    environment:
+      # Postgres connection for SuperTokens Core
+      POSTGRESQL_CONNECTION_URI: "postgresql://supertokens:supertokens@supertokens-db:5432/supertokens"
+      # Optional: table prefix, DB pool, etc.
+      # POSTGRESQL_TABLES_PREFIX: "st_"
+      API_KEYS: ""   # empty for now (you said you’ll add keys later)
+    depends_on:
+      - supertokens-db
+    restart: unless-stopped
+    # no ports -> keep private (internal calls from login-consent / gate-api only)
+
+  supertokens-db:
+    image: postgres:14
+    container_name: supertokens-db
+    environment:
+      POSTGRES_USER: supertokens
+      POSTGRES_PASSWORD: supertokens
+      POSTGRES_DB: supertokens
+    volumes:
+      - supertokens_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # ========== OPTIONAL: seed a confidential client for Gate ==========
+  hydra-init:
+    image: python:3.11-alpine
+    container_name: hydra-init
+    depends_on:
+      - hydra
+    environment:
+      HYDRA_ADMIN_URL: "http://hydra:4445"
+      GATE_CLIENT_ID: "gate-client"
+      GATE_CLIENT_SECRET: "gate-client-secret"
+      GATE_REDIRECT_URI: "http://localhost:3000/callback"
+    volumes:
+      - ./hydra-init.py:/opt/hydra-init.py:ro
+    entrypoint: ["python", "/opt/hydra-init.py"]
+    restart: "no"
+      
 volumes:
-  hydra_db:
+  hydra_db_data:
+  supertokens_db_data:

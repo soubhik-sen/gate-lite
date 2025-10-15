@@ -1,6 +1,6 @@
-import os
+import os, logging
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, APIRouter, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # SuperTokens imports
@@ -11,8 +11,8 @@ from supertokens_python.framework.fastapi import get_middleware
 from supertokens_python.recipe.session.framework.fastapi import verify_session
 from supertokens_python.recipe.session import SessionContainer
 from supertokens_python.recipe.session import InputErrorHandlers
-from token_verify import verify_bearer
-from oauth_routes import router as oauth_router
+from api.token_verify import verify_bearer
+from api.oauth_routes import router as oauth_router
 from api.gate_m2m import router as gate_m2m_router
 
 # ----- Configuration from environment -----
@@ -23,6 +23,7 @@ ISSUER = os.getenv("ISSUER", "http://localhost:3001").rstrip("/")
 WEB_ORIGIN = os.getenv("WEB_ORIGIN", "http://localhost:3000").rstrip("/")
 CORE_URI = os.getenv("SUPERTOKENS_CORE", "http://localhost:3567")
 COOKIE_DOMAIN: Optional[str] = os.getenv("COOKIE_DOMAIN") or None
+ADMIN = os.getenv("HYDRA_ADMIN_URL", "http://hydra:4445").rstrip("/")
 
 API_BASE_PATH = os.getenv("API_BASE_PATH", "/auth")
 WEBSITE_BASE_PATH = os.getenv("WEBSITE_BASE_PATH", "/auth")
@@ -37,8 +38,23 @@ IS_DEV = ENV != "prod"
 COOKIE_SECURE = not IS_DEV  # secure cookies only in prod (must be HTTPS)
 COOKIE_SAMESITE = "lax" if IS_DEV else "none"  # 'lax' for dev, 'none' for cross-site prod
 
+logging.basicConfig(level=logging.INFO)
+logging.info("HYDRA_ADMIN_URL=%s", os.getenv("HYDRA_ADMIN_URL"))
 # ----- FastAPI app -----
 app = FastAPI(title="Gate-Lite API")
+
+# admin_router = APIRouter(prefix="/gate/admin")
+# @admin_router.middleware("http")
+# async def restrict_admin_access(request: Request, call_next):
+#     client_host = request.client.host
+#     allowed_hosts = ["127.0.0.1", "localhost"]
+#     allowed_prefix = "172."  # docker internal bridge network
+
+#     if client_host not in allowed_hosts and not client_host.startswith(allowed_prefix):
+#         raise HTTPException(status_code=403, detail="Forbidden: Admin routes are internal only")
+
+#     return await call_next(request)
+
 app.include_router(oauth_router)
 app.include_router(gate_m2m_router)
 # ----- SuperTokens init (runs once at import) -----

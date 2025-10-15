@@ -37,3 +37,19 @@ def load_client_registry() -> Dict[str, ClientCfg]:
     if cfg:
         return cfg
     raise RuntimeError("No client registry found. Set GATE_CLIENTS_JSON or GATE_CLIENTS_FILE")
+
+# --- Append below your existing code in gate_config.py ---
+
+class Settings:
+    # Gate public base (what clients hit)
+    GATE_BASE_URL = os.getenv("GATE_BASE_URL", "http://localhost:8000").rstrip("/")
+
+    # Internal Hydra endpoints (Docker-internal)
+    HYDRA_PUBLIC_URL = os.getenv("HYDRA_PUBLIC_URL", "http://hydra:4444").rstrip("/")
+    HYDRA_ADMIN_URL  = os.getenv("HYDRA_ADMIN_URL",  "http://hydra:4445").rstrip("/")
+
+    # What we want to advertise as the issuer (can be Hydra for now; later switch to Gate domain)
+    GATE_ISSUER = os.getenv("GATE_ISSUER", "http://hydra-public:4444").rstrip("/")
+
+settings = Settings()
+
