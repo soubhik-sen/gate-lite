@@ -93,6 +93,7 @@ services:
       APP_BASE_URL: "http://localhost:8000"
       WEB_ORIGIN: "http://localhost:3000"
       API_DOMAIN: "http://localhost:8000"
+
     depends_on:
       - hydra
       - supertokens
