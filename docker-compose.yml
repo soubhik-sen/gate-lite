@@ -93,7 +93,8 @@ services:
       APP_BASE_URL: "http://localhost:8000"
       WEB_ORIGIN: "http://localhost:3000"
       API_DOMAIN: "http://localhost:8000"
-
+      GOOGLE_CLIENT_ID : "654985009658-slb6ckmbuobiudphfedclun3fdup8e77.apps.googleusercontent.com"
+      GOOGLE_CLIENT_SECRET : "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"
     depends_on:
       - hydra
       - supertokens
