@@ -3,25 +3,36 @@ FastAPI service acting as the login and consent front-end for Ory Hydra.
 It uses Supertokens for authentication and drives Hydra's OAuth2 login and
 consent challenges.
 """
-
+print(">>> app_main.py imported")   
 import os
 import httpx
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Request, Form
+from fastapi import FastAPI, Depends, HTTPException, Request, Form, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from supertokens_python import init, SupertokensConfig, InputAppInfo
-from supertokens_python.framework.fastapi import get_middleware
-from supertokens_python.recipe import session, emailpassword
 from supertokens_python.recipe.session.framework.fastapi import verify_session
+from supertokens_python.recipe.session.asyncio import get_session
 from supertokens_python.recipe.session import SessionContainer
+from supertokens_python.recipe import  session, thirdparty, emailpassword
+from supertokens_python.framework.fastapi import get_middleware
+from supertokens_python.recipe.thirdparty.provider import (
+    ProviderInput, ProviderConfig, ProviderClientConfig
+)
+from supertokens_python.recipe.thirdparty import SignInAndUpFeature
+
 
 # --- replace the ENV block at the top with this ---
+SUPERTOKENS_CORE = "http://supertokens:3567"
 ENV = os.getenv("ENV", "dev")
-API_DOMAIN = os.getenv("API_DOMAIN", "http://login-consent:8000").rstrip("/")     # inside docker
+API_DOMAIN = os.getenv("API_DOMAIN", "http://localhost:8000").rstrip("/")     # inside docker
 WEB_ORIGIN = os.getenv("WEB_ORIGIN", "http://localhost:3000").rstrip("/")         # your real web app origin
 HYDRA_ADMIN_URL = os.getenv("HYDRA_ADMIN_URL", "http://hydra:4445").rstrip("/")
+SUPERTOKENS_FRONTEND_URL = "http://localhost:3002"
+GATE = "http://localhost:8000"
+
+
 
 # Support either var name; prefer SUPERTOKENS_CONNECTION_URI but fall back to SUPERTOKENS_CORE_URI
 _SUPERTOKENS_URI = os.getenv("SUPERTOKENS_CONNECTION_URI") or os.getenv("SUPERTOKENS_CORE_URI") or "http://supertokens:3567"
@@ -33,6 +44,7 @@ IS_DEV = ENV != "prod"
 COOKIE_SECURE = not IS_DEV
 COOKIE_SAMESITE = "lax" if IS_DEV else "none"
 
+print(">>> Running Supertokens init")
 
 # Init Supertokens (email-password + session) just for the login UI app
 init(
@@ -41,23 +53,81 @@ init(
         api_domain=API_DOMAIN,
         website_domain=WEB_ORIGIN,
         api_base_path="/auth",
+        #api_base_path= "/authui/auth",
         website_base_path="/auth",
     ),
     supertokens_config=SupertokensConfig(connection_uri=SUPERTOKENS_CONNECTION_URI),
     framework="fastapi",
     recipe_list=[
-        emailpassword.init(),
+        # emailpassword.init(),
         session.init(
             anti_csrf="VIA_TOKEN",
             cookie_domain=COOKIE_DOMAIN,
             cookie_secure=COOKIE_SECURE,
             cookie_same_site=COOKIE_SAMESITE,
         ),
+        thirdparty.init(
+    sign_in_and_up_feature=SignInAndUpFeature(
+        providers=[
+            ProviderInput(
+                config=ProviderConfig(
+                    third_party_id="google",
+                    clients=[ProviderClientConfig(
+                        client_id=os.getenv("GOOGLE_CLIENT_ID"),
+                        client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+                    )],
+                )
+            ),
+            ProviderInput(
+                config=ProviderConfig(
+                    third_party_id="github",
+                    clients=[ProviderClientConfig(
+                        client_id=os.getenv("GITHUB_CLIENT_ID"),
+                        client_secret=os.getenv("GITHUB_CLIENT_SECRET"),
+                    )],
+                )
+            ),
+            ProviderInput(
+                config=ProviderConfig(
+                    third_party_id="facebook",
+                    clients=[ProviderClientConfig(
+                        client_id=os.getenv("FACEBOOK_CLIENT_ID"),
+                        client_secret=os.getenv("FACEBOOK_CLIENT_SECRET"),
+                    )],
+                )
+            ),
+            ProviderInput(
+                config=ProviderConfig(
+                    third_party_id="linkedin",
+                    clients=[ProviderClientConfig(
+                        client_id=os.getenv("LINKEDIN_CLIENT_ID"),
+                        client_secret=os.getenv("LINKEDIN_CLIENT_SECRET"),
+                    )],
+                )
+            ),
+            ProviderInput(
+                config=ProviderConfig(
+                    third_party_id="apple",
+                    clients=[ProviderClientConfig(
+                        client_id=os.getenv("APPLE_CLIENT_ID"),
+                        client_secret=os.getenv("APPLE_CLIENT_SECRET"),
+                    )],
+                )
+            ),
+        ]
+    )
+),
+       emailpassword.init(),
     ],
 )
 
+print("GOOGLE_CLIENT_ID:", os.getenv("GOOGLE_CLIENT_ID"))
+print("GOOGLE_CLIENT_SECRET:", "set" if os.getenv("GOOGLE_CLIENT_SECRET") else "missing")
+print('>>> Supertokens init done after env')
+
 app = FastAPI(title="Gate Login & Consent")
 app.add_middleware(get_middleware())  # ST first
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[WEB_ORIGIN],
@@ -66,6 +136,25 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["front-token", "anti-csrf", "rid", "st-auth-mode"],
 )
+
+#app.include_router(get_router())
+
+# @app.api_route("/auth/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+# async def proxy_supertokens(path: str, request: Request):
+#     """Forward all /auth/* calls to the Supertokens Core service."""
+#     core_url = f"{SUPERTOKENS_CORE}/auth/{path}"
+#     async with httpx.AsyncClient() as client:
+#         resp = await client.request(
+#             request.method,
+#             core_url,
+#             headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
+#             content=await request.body(),
+#         )
+#     return Response(
+#         content=resp.content,
+#         status_code=resp.status_code,
+#         headers=dict(resp.headers),
+#     )
 
 # 1) HYDRA LOGIN endpoint
 # Hydra redirects the browser to GET /login?login_challenge=...
@@ -85,8 +174,9 @@ async def login_ui(request: Request, login_challenge: str):
         Redirects the browser to the ``redirect_to`` URL supplied by Hydra or
         returns JSON instructing the client to initiate login.
     """
+
     # If user already has a Supertokens session, accept login immediately
-    session_: SessionContainer | None = await session.get_session(request, session_required=False)
+    session_: SessionContainer | None = await get_session(request, session_required=False)
     if session_:
         user_id = session_.get_user_id()
         async with httpx.AsyncClient() as client:
@@ -105,7 +195,13 @@ async def login_ui(request: Request, login_challenge: str):
         return RedirectResponse(redirect_to)
 
     # Otherwise render your login page (for demo, redirect to Supertokens hosted UI or return JSON)
-    return JSONResponse({"login_challenge": login_challenge, "action": "please sign in via /auth"})
+    async with httpx.AsyncClient() as client:
+
+     return RedirectResponse(
+     f"{SUPERTOKENS_FRONTEND_URL}/auth/signinup/google/redirect"
+     f"?login_challenge={login_challenge}"
+)
+
 
 # After user signs in (via Supertokens), your frontend should call:
 # POST /login/accept with the login_challenge to finalize
@@ -136,6 +232,14 @@ async def login_accept(login_challenge: str = Form(...), session_: SessionContai
         r.raise_for_status()
         redirect_to = r.json()["redirect_to"]
     return RedirectResponse(redirect_to)
+
+
+@app.get("/__routes")
+def list_routes():
+    return [
+        {"path": r.path, "methods": sorted(list(getattr(r, "methods", [])))}
+        for r in app.routes
+    ]
 
 # 2) HYDRA CONSENT endpoint
 # Hydra redirects browser to GET /consent?consent_challenge=...
@@ -228,8 +332,13 @@ async def logged_out():
 
 # 4) Dev helper: whoami (quick session check)
 @app.get("/whoami")
-async def whoami(request: Request):
-    session_: SessionContainer | None = await session.get_session(request, session_required=False)
-    if not session_:
-        return JSONResponse({"loggedIn": False})
-    return JSONResponse({"loggedIn": True, "userId": session_.get_user_id()})
+async def whoami(
+    session: Optional[SessionContainer] = Depends(verify_session(session_required=False))
+):
+    if session is None:
+        return {"loggedIn": False}
+    return {
+        "loggedIn": True,
+        "userId": session.get_user_id(),
+        "sessionHandle": session.get_handle(),
+    }

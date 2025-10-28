@@ -13,10 +13,10 @@ urls:
     issuer: http://hydra:4444            # for now; later put your Gate public domain + TLS
     public: http://hydra:4444
     admin: http://hydra:4445
-  login: http://login-consent:8000/login
-  consent: http://login-consent:8000/consent
-  logout: http://login-consent:8000/logout
-  post_logout_redirect: http://login-consent:8000/loggedout
+  login:   http://localhost:8000/authui/login
+  consent: http://localhost:8000/authui/consent
+  logout: http://login-consent:3002/logout
+  post_logout_redirect: http://login-consent:3002/loggedout
 
 secrets:
   system:

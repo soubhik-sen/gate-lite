@@ -1,4 +1,5 @@
 # oauth_routes.py (Gate façade + PKCE)
+import logging
 import os, time
 import httpx
 from fastapi import APIRouter, Request, Response, Depends, HTTPException
@@ -10,7 +11,7 @@ from api.hydra_client import hydra_create_client, delete_client, list_clients
 router = APIRouter(prefix="/gate", tags=["gate"])
 
 # ---------- PKCE login settings (frontend flow) ----------
-CLIENT_ID = os.getenv("OAUTH_CLIENT_ID", "gate-client")
+CLIENT_ID = os.getenv("OAUTH_CLIENT_ID", "test-client-ssui20")
 CLIENT_SECRET = os.getenv("OAUTH_CLIENT_SECRET")  # optional (confidential clients)
 REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI", "http://localhost:3000/callback")
 SCOPE = os.getenv("OAUTH_SCOPE", "openid offline")
@@ -18,9 +19,18 @@ AUDIENCE = os.getenv("OAUTH_AUDIENCE")  # optional
 HYDRA_LOCAL = os.getenv("HYDRA_PUBLIC_URL")
 HYDRA_LOCAL_ADMIN = os.getenv("HYDRA_ADMIN_URL")
 
+issuer = os.getenv("ISSUER") or HYDRA_LOCAL 
+
+logger = logging.getLogger("gate.oauth")
+
 # Simple in-memory state (replace with Redis/session later)
 _STATE = {}
-def _save_state(state: str, verifier: str): _STATE[state] = (verifier, time.time())
+def _save_state(state: str, verifier: str, provider: str):
+    _STATE[state] = {
+        "verifier": verifier,
+        "timestamp": time.time(),
+        "provider": provider
+    }
 def _pop_state(state: str): return _STATE.pop(state, None)
 
 # ---------- Helpers ----------
@@ -114,14 +124,23 @@ async def admin_create_client(payload: dict):
 async def admin_delete_client(client_id: str):
     return await delete_client(client_id)
 
+@router.get("/oauth/state/{state}")
+def get_state_info(state: str):
+    entry = _save_state.get(state)
+    logger.info(f"🔐 Get state from temp memory | state={state} | line={entry}")
+    if not entry:
+        raise HTTPException(status_code=404, detail="Unknown state")
+    return {"provider": entry["provider"]}
+
+
 # ---------- PKCE browser flow (Gate-facing) ----------
 @router.get("/oauth/login")
-def oauth_login():
+def oauth_login(provider: str):
     code_verifier = new_code_verifier()
     code_challenge = to_code_challenge_s256(code_verifier)
     state = new_code_verifier(16)
-    _save_state(state, code_verifier)
-
+    _save_state(state, code_verifier, provider)
+    logger.info(f"🔐 OAuth login started | state={state} | provider={provider}")
     params = {
         "client_id": CLIENT_ID,
         "response_type": "code",
@@ -135,7 +154,8 @@ def oauth_login():
         params["audience"] = AUDIENCE
 
     q = "&".join(f"{k}={httpx.QueryParams({k:v})[k]}" for k, v in params.items())
-    return RedirectResponse(url=f"{settings.HYDRA_PUBLIC_URL}/oauth2/auth?{q}", status_code=302)
+    logger.info(f"🔐 OAuth login url 1 | {issuer}/oauth2/auth?{q}")
+    return RedirectResponse(url=f"{issuer}/oauth2/auth?{q}", status_code=302)
 
 @router.get("/oauth/callback")
 def oauth_callback(code: str, state: str):

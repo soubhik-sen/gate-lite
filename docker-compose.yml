@@ -14,9 +14,9 @@ services:
       # Hydra (internal)
       HYDRA_PUBLIC_URL: "http://hydra:4444"
       HYDRA_ADMIN_URL:  "http://hydra:4445"
-      ISSUER: "http://hydra:4444"
+      ISSUER: "http://localhost:8000"
       # Gate's OAuth client (seeded by hydra-init)
-      OAUTH_CLIENT_ID: "gate-client"
+      OAUTH_CLIENT_ID: "test-client-ssui20"
       OAUTH_CLIENT_SECRET: "gate-client-secret"
       OAUTH_REDIRECT_URI: "http://localhost:3000/callback"
       OAUTH_SCOPE: "sacred.read sacred.write"
@@ -72,17 +72,29 @@ services:
 
   # ========== LOGIN + CONSENT (PRIVATE) ==========
   login-consent:
+    command: >
+      uvicorn app_main:app
+      --host 0.0.0.0
+      --port 3002
+      --workers 1
+      --no-server-header
+      --log-level info
     build: ./login-consent
     container_name: login-consent
+    ports:
+      - "3002:3002" 
     environment:
+      PYTHONUNBUFFERED: "1"     # flush prints immediately
       # Hydra Admin for login/consent accept/deny
       HYDRA_ADMIN_URL: "http://hydra:4445"
       # SuperTokens Core for session management
       SUPERTOKENS_CORE_URI: "http://supertokens:3567"
       # Optional app configs your code might expect:
-      APP_BASE_URL: "http://login-consent:8000"
+      APP_BASE_URL: "http://localhost:8000"
       WEB_ORIGIN: "http://localhost:3000"
-      API_DOMAIN: "http://login-consent:8000"
+      API_DOMAIN: "http://localhost:8000"
+      GOOGLE_CLIENT_ID : "654985009658-slb6ckmbuobiudphfedclun3fdup8e77.apps.googleusercontent.com"
+      GOOGLE_CLIENT_SECRET : "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"
     depends_on:
       - hydra
       - supertokens

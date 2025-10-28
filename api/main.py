@@ -11,6 +11,8 @@ from supertokens_python.framework.fastapi import get_middleware
 from supertokens_python.recipe.session.framework.fastapi import verify_session
 from supertokens_python.recipe.session import SessionContainer
 from supertokens_python.recipe.session import InputErrorHandlers
+import httpx
+from fastapi import Response
 from api.token_verify import verify_bearer
 from api.oauth_routes import router as oauth_router
 from api.gate_m2m import router as gate_m2m_router
@@ -40,6 +42,7 @@ COOKIE_SAMESITE = "lax" if IS_DEV else "none"  # 'lax' for dev, 'none' for cross
 
 logging.basicConfig(level=logging.INFO)
 logging.info("HYDRA_ADMIN_URL=%s", os.getenv("HYDRA_ADMIN_URL"))
+logger = logging.getLogger("gate.main")
 # ----- FastAPI app -----
 app = FastAPI(title="Gate-Lite API")
 
@@ -119,12 +122,59 @@ app.add_middleware(
     ],
 )
 
+@app.api_route("/authui/{path:path}", methods=["GET", "POST"])
+async def proxy_authui(path: str, request: Request):
+    target = f"http://login-consent:3002/{path}"
+    logger.info(f"🔐 OAuth login url 3 gate to login| {target}")
+    async with httpx.AsyncClient(follow_redirects=False) as client:
+        body = await request.body()
+        # strip hop-by-hop headers
+        fwd_headers = {k: v for k, v in request.headers.items()
+                       if k.lower() not in {"host","connection","keep-alive","proxy-authenticate",
+                                            "proxy-authorization","te","trailer","transfer-encoding","upgrade"}}
+        resp = await client.request(request.method, target, params=request.query_params,
+                                    content=body, headers=fwd_headers)
+    # return without hop-by-hop headers
+    out_headers = {k: v for k, v in resp.headers.items()
+                   if k.lower() not in {"connection","keep-alive","proxy-authenticate",
+                                        "proxy-authorization","te","trailer","transfer-encoding","upgrade"}}
+    return Response(content=resp.content, status_code=resp.status_code, headers=out_headers)
+
+
+@app.api_route("/oauth2/{path:path}", methods=["GET", "POST"])
+async def proxy_oauth2(path: str, request: Request):
+    hydra_public = os.getenv("HYDRA_PUBLIC_URL", "http://hydra:4444")
+    url = f"{hydra_public}/oauth2/{path}"
+    logger.info(f"🔐 OAuth login url 2 | {url}")
+    async with httpx.AsyncClient(follow_redirects=False) as client:
+        body = await request.body()
+        fwd_headers = {k: v for k, v in request.headers.items()
+                       if k.lower() not in {"host","connection","keep-alive","proxy-authenticate",
+                                            "proxy-authorization","te","trailer","transfer-encoding","upgrade"}}
+        resp = await client.request(request.method, url, params=request.query_params,
+                                    content=body, headers=fwd_headers)
+
+    # Rewrite internal redirects → public Gate paths
+    out_headers = {k: v for k, v in resp.headers.items()
+                   if k.lower() not in {"connection","keep-alive","proxy-authenticate",
+                                        "proxy-authorization","te","trailer","transfer-encoding","upgrade"}}
+    loc = out_headers.get("location")
+    if loc:
+        if loc.startswith("http://hydra:4444"):
+            loc = loc.replace("http://hydra:4444", "http://localhost:8000/oauth2")
+        if loc.startswith("http://login-consent:3002"):
+            loc = loc.replace("http://login-consent:3002", "http://localhost:8000/authui")
+        out_headers["location"] = loc
+        logger.info(f"🔐 OAuth login location in header | {loc}")
+    return Response(content=resp.content, status_code=resp.status_code, headers=out_headers)
+
 
 
 # ----- Routes -----
 @app.get("/ping")
 def ping():
     return {"ok": True}
+    
 
 # Protected route (requires valid session)
 @app.get("/me")
